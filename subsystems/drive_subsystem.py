@@ -3,7 +3,7 @@ import wpimath.kinematics
 from wpimath.kinematics import SwerveModulePosition, ChassisSpeeds
 from wpimath.geometry import Translation2d, Rotation2d, Pose3d, Pose2d
 from wpilib import DriverStation, RobotBase
-from phoenix5.sensors import PigeonIMU
+from phoenix6.hardware import Pigeon2
 from wpimath.units import degreesToRadians, meters_per_second, radians_per_second, degrees
 from subsystems.swerve_module import SwerveModule
 import constants
@@ -35,15 +35,17 @@ class DriveSubsystem(commands2.Subsystem):
         self.pose_est.resetPose(pose)
 
     def __init__(self):
-        self.gyro = PigeonIMU(30)
-        self.gyro.setYaw(0)
+        self.gyro = Pigeon2(30)
+        self.gyro.set_yaw(180)
 
-        self.front_left = SwerveModule(6, 4, 0, constants.front_left_offset)
-        self.front_right = SwerveModule(7, 3, 1, constants.front_right_offset)
+        # self.gyro = PigeonIMU(30)
+        # self.gyro.setYaw(180)
 
-        self.back_left = SwerveModule(8, 2, 2, constants.back_left_offset)
-        self.back_right = SwerveModule(9, 5, 3, constants.back_right_offset) 
+        self.front_left = SwerveModule(9, 4, 0, constants.front_left_offset, False)
+        self.front_right = SwerveModule(8, 3, 1, constants.front_right_offset, False)
 
+        self.back_left = SwerveModule(7, 2, 2, constants.back_left_offset, False)
+        self.back_right = SwerveModule(6, 5, 3, constants.back_right_offset, False) 
 
         self.front_left_location = constants.front_left_gyro_offset
         self.front_right_location = constants.front_right_gyro_offset
@@ -70,21 +72,22 @@ class DriveSubsystem(commands2.Subsystem):
             ),
             constants.inital_pose,
         )
-
+        #TODO:SET THIS TO SOMETHING SANE AFTER TESTING!!!
         self.pose_est.setVisionMeasurementStdDevs((0.9, 0.9, 1.8))
+        # self.pose_est.setVisionMeasurementStdDevs((0.1, 0.1, .3))
         
-        # # broken for wpilib version 2024
+        # broken for wpilib version 2024
         config = RobotConfig.fromGUISettings()
 
-        # Configure the AutoBuilder last
+        # # Configure the AutoBuilder last
         AutoBuilder.configure(
             self.get_pose,
             self.reset_position, # Method to reset odometry (will be called if your auto has a starting pose)
             self.get_speed, # ChassisSpeeds supplier. MUST BE ROBOT RELATIVE
             self.pathplanner_drive, # Method that will drive the robot given ROBOT RELATIVE ChassisSpeeds. Also outputs individual module feedforwards
             PPHolonomicDriveController( # PPHolonomicController is the built in path following controller for holonomic drive trains
-                PIDConstants(3, 0, 0.05), # Translation PID constants
-                PIDConstants(3.5, 0, 0.8) # Rotation PID constants
+                PIDConstants(3, 0, 0.02), # Translation PID constants
+                PIDConstants(2, 0, 0.3) # Rotation PID constants
                 
             ),
             config, # The robot configuration
@@ -103,7 +106,8 @@ class DriveSubsystem(commands2.Subsystem):
 
     def get_gyro_rotation2d(self) -> Rotation2d:
         # self.gyro.setYaw(self.gyro.getYaw() % 360)
-        return Rotation2d(degreesToRadians(self.gyro.getYaw()))
+        # return Rotation2d(degreesToRadians(self.gyro.getRotation2d()))
+        return Rotation2d(degreesToRadians(self.gyro.get_yaw().value))
 
 
     def drive(
@@ -130,10 +134,22 @@ class DriveSubsystem(commands2.Subsystem):
                 period_seconds,
             )
         )
-        swerve_module_states = wpimath.kinematics.SwerveDrive4Kinematics.desaturateWheelSpeeds(
+
+        # swerve_module_states = wpimath.kinematics.SwerveDrive4Kinematics.desaturateWheelSpeeds(
+        #     swerve_module_states, constants.drivetrain_max_speed
+        # )
+        wpimath.kinematics.SwerveDrive4Kinematics.desaturateWheelSpeeds(
             swerve_module_states, constants.drivetrain_max_speed
         )
 
+        # for i, s in enumerate(swerve_module_states):
+        #     print('b', i, s.angle.degrees(), s.speed)
+
+        # # print()
+        # print('0', self.front_left.absolute_encoder.get())
+        # print('1', self.front_right.absolute_encoder.get())
+        # print('2', self.back_left.absolute_encoder.get())
+        # print('3', self.back_right.absolute_encoder.get())
 
         self.front_left.set_desired_state(swerve_module_states[0])
         self.front_right.set_desired_state(swerve_module_states[1])
