@@ -4,6 +4,7 @@ import wpimath.controller
 import wpimath.kinematics
 import wpimath.trajectory
 import wpimath.geometry
+import wpimath
 import math
 import wpilib
 
@@ -17,22 +18,36 @@ class SwerveModule:
 
     def get_drive_position(self):
         """Returns position in meters"""
-        return -1 * self.drive_motor.get_position().value * constants.drive_velocity_conversion_factor
+        return self.drive_motor.get_position().value * constants.drive_velocity_conversion_factor
 
     def get_drive_velocity(self):
         """Returns velocity in meters per second"""
-        return -1 * float(self.drive_motor.get_velocity().value) * constants.drive_velocity_conversion_factor
+        return float(self.drive_motor.get_velocity().value) * constants.drive_velocity_conversion_factor
 
     def get_turning_position(self):
         """Get offset encoder position in radians"""
 
         offset_value = (zero_enc(self.absolute_encoder.get(), self.offset))
         
-        return wpimath.geometry.Rotation2d(offset_value * 2 * math.pi)
+        return wpimath.geometry.Rotation2d(wpimath.angleModulus(offset_value * 2 * math.pi))
 
-    def __init__(self, drive_motor: int, turning_motor: int, absolute_encoderID: int, offset: int):
+    def __init__(self, drive_motor: int, turning_motor: int, absolute_encoderID: int, offset: int, is_inverted : bool = False):
         self.offset = offset
         self.drive_motor = phoenix6.hardware.talon_fx.TalonFX(drive_motor)
+
+        configs = phoenix6.configs.MotorOutputConfigs()
+        if is_inverted:
+            configs.inverted = phoenix6.signals.InvertedValue.CLOCKWISE_POSITIVE
+        else:
+            configs.inverted = phoenix6.signals.InvertedValue.COUNTER_CLOCKWISE_POSITIVE
+
+        # if is_inverted:
+        #     self.inversion_coefficent = -1
+        # else:
+        #     self.inversion_coefficent = 1
+
+        self.drive_motor.configurator.apply(configs)
+
         self.turning_motor = SparkMax(turning_motor, SparkMax.MotorType.kBrushless)
         self.absolute_encoderID = absolute_encoderID
         self.absolute_encoder = wpilib.AnalogEncoder(absolute_encoderID)
@@ -53,7 +68,7 @@ class SwerveModule:
             ),
         )
         self.turning_PID_controller.setTolerance(constants.turn_pid_tolerance)
-
+        
 
         self.drive_feedforward = wpimath.controller.SimpleMotorFeedforwardMeters(
             constants.drive_ff_s, constants.drive_ff_v, constants.drive_ff_a)
@@ -76,22 +91,33 @@ class SwerveModule:
         )
 
     def set_desired_state(
-
         self, state: wpimath.kinematics.SwerveModuleState
     ) -> None:
         encoder_rotation = self.get_turning_position()
         drive_velocity = self.get_drive_velocity()
-       
 
         # Optimize the reference state to avoid spinning further than 90 degrees
+        #print(f"{self.absolute_encoderID:d}- {state.speed:.2f}")
         wpimath.kinematics.SwerveModuleState.optimize(
             state, encoder_rotation
         )
+        #print(f"{self.absolute_encoderID:d}+ {state.speed:.2f}")
+        #state.optimize(encoder_rotation)
+
+        # motor_configs = configs.MotorOutputConfigs()
+        # self.drive_motor.configurator.refresh(motor_configs)
+        # print(str(self.absolute_encoderID) + " " + str((motor_configs.inverted == phoenix6.signals.InvertedValue.COUNTER_CLOCKWISE_POSITIVE)))
 
         # Scale speed by cosine of angle error. This scales down movement perpendicular to the desired
         # direction of travel that can occur when modules change directions. This results in smoother
         # driving.
+
+        #print(f"{self.absolute_encoderID} {(state.angle - encoder_rotation).cos():.2f}")
         state.speed *= (state.angle - encoder_rotation).cos()
+        
+        #_temp_speed = state.speed * (state.angle - encoder_rotation).cos()
+        #print(f"{self.absolute_encoderID:d} {state.speed:.2f} {_temp_speed:.2f}")
+        #state.speed = _temp_speed
 
         drive_output = self.drive_PID_controller.calculate(
             drive_velocity, state.speed
@@ -107,11 +133,12 @@ class SwerveModule:
             self.turning_PID_controller.getSetpoint().velocity
         )
 
+        #print(f"{self.absolute_encoderID} {state.speed:.2f} {drive_output:.2f} {drive_feed_forward:.2f}")
         self.drive_motor.set_control(
-            phoenix6.controls.VoltageOut(-(drive_output + drive_feed_forward))
+            # phoenix6.controls.VoltageOut(self.inversion_coefficent * (drive_output + drive_feed_forward))
+            phoenix6.controls.VoltageOut((drive_output + drive_feed_forward))
         )
 
         self.turning_motor.setVoltage(
            (turn_output + turn_feed_forward)
         )
-
